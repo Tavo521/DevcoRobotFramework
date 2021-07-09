@@ -1,0 +1,110 @@
+Resources:
+  ec2idInstanceSecurityGroupA8555DE1:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: VPC/ec2id/InstanceSecurityGroup
+      SecurityGroupEgress:
+        - CidrIp: 0.0.0.0/0
+          Description: Allow all outbound traffic by default
+          IpProtocol: "-1"
+      SecurityGroupIngress:
+        - CidrIp: 0.0.0.0/0
+          Description: Postgresql acess
+          FromPort: 5432
+          IpProtocol: tcp
+          ToPort: 5432
+      Tags:
+        - Key: Name
+          Value: ec2-postgresql-devco
+      VpcId: vpc-ca4f4cb0
+    Metadata:
+      aws:cdk:path: VPC/ec2id/InstanceSecurityGroup/Resource
+  ec2idInstanceRoleD0A6DA47:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Action: sts:AssumeRole
+            Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+        Version: "2012-10-17"
+      Tags:
+        - Key: Name
+          Value: ec2-postgresql-devco
+    Metadata:
+      aws:cdk:path: VPC/ec2id/InstanceRole/Resource
+  ec2idInstanceProfile80A56665:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - Ref: ec2idInstanceRoleD0A6DA47
+    Metadata:
+      aws:cdk:path: VPC/ec2id/InstanceProfile
+  ec2idC85D4938:
+    Type: AWS::EC2::Instance
+    Properties:
+      AvailabilityZone: us-east-1a
+      IamInstanceProfile:
+        Ref: ec2idInstanceProfile80A56665
+      ImageId: ami-0dc2d3e4c0f9ebd18
+      InstanceType: t2.micro
+      KeyName: key-pair-us-east-1
+      SecurityGroupIds:
+        - Fn::GetAtt:
+            - ec2idInstanceSecurityGroupA8555DE1
+            - GroupId
+      SubnetId: subnet-6446b445
+      Tags:
+        - Key: Name
+          Value: ec2-postgresql-devco
+      UserData:
+        Fn::Base64: |
+          #!/bin/bash -ex
+          sudo yum -y update
+          sudo yum -y install python-pip python-devel gcc postgresql-server postgresql-devel postgresql-contrib
+          sudo postgresql-setup initdb
+          sudo systemctl start postgresql
+          sudo sed -i 's,host    all             all             127.0.0.1/32            ident,host    all             all             0.0.0.0/0            md5,g' /var/lib/pgsql/data/pg_hba.conf
+          sudo sed -i 's,host    all             all             ::1/128                 ident,host    all             all             ::1/128                 md5,g' /var/lib/pgsql/data/pg_hba.conf
+          sudo systemctl restart postgresql
+          sudo systemctl enable postgresql
+          sudo echo "CREATE DATABASE devcopruebas; CREATE USER userdevco WITH PASSWORD 'admin'; ALTER ROLE userdevco SET client_encoding TO 'utf8'; ALTER ROLE userdevco SET default_transaction_isolation TO 'read committed'; ALTER ROLE userdevco SET timezone TO 'UTC'; GRANT ALL PRIVILEGES ON DATABASE myproject TO userdevco;" >> /tmp/tempfile
+          sudo -u postgres /bin/psql -f /tmp/tempfile
+          sudo yum install -y httpd
+          sudo systemctl enable httpd
+          sudo systemctl start httpd
+          sudo setsebool -P httpd_can_network_connect on
+          sudo setsebool -P httpd_can_network_connect_db on
+          sudo sudo yum install -y php php-pgsql
+          sudo sed -i "s/#listen_addresses = 'localhost'/listen_addresses = '*'/g" /var/lib/pgsql/data/postgresql.conf
+          sudo sed -i 's/#port = 5432/port = 5432/g' /var/lib/pgsql/data/postgresql.conf 
+          sudo systemctl restart httpd
+          sudo systemctl restart postgresql
+    DependsOn:
+      - ec2idInstanceRoleD0A6DA47
+    Metadata:
+      aws:cdk:path: VPC/ec2id/Resource
+Outputs:
+  VPCId:
+    Description: VPC ID
+    Value: vpc-ca4f4cb0
+    Export:
+      Name: us-east-1:874520149338:VPC:vpc-id
+  BastionPrivateIP:
+    Description: BASTION Private IP
+    Value:
+      Fn::GetAtt:
+        - ec2idC85D4938
+        - PrivateIp
+    Export:
+      Name: us-east-1:874520149338:VPC:bastion-private-ip
+  BastionPublicIP:
+    Description: BASTION Public IP
+    Value:
+      Fn::GetAtt:
+        - ec2idC85D4938
+        - PublicIp
+    Export:
+      Name: us-east-1:874520149338:VPC:bastion-public-ip
+
